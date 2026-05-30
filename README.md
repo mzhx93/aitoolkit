@@ -3,17 +3,18 @@
 [![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-Scnet OCR 文档智能服务 MCP Server，支持通过 Model Context Protocol 调用 Scnet 平台的 OCR 文档识别 API。
+Scnet OCR MCP Server，集成**通用 OCR** + **文档智能**两大能力，支持通过 MCP 协议调用。
 
 ## 功能
 
-提供 3 个 MCP 工具：
+提供 4 个 MCP 工具：
 
-| 工具 | 说明 |
-|------|------|
-| `submit_ocr_task` | 提交文档 URL，获取 task_id（异步） |
-| `query_ocr_result` | 传入 task_ids 列表，查询任务状态和结果下载链接 |
-| `submit_and_wait_ocr` | 提交任务并自动轮询直到完成（同步体验） |
+| 工具 | 类型 | 说明 |
+|------|------|------|
+| `recognize_image_ocr` | 通用 OCR（同步） | 上传图片，同步返回识别结果。支持 56 种场景：通用文字、身份证、银行卡、营业执照、增值税发票等 |
+| `submit_ocr_task` | 文档智能（异步） | 提交文档 URL，获取 task_id |
+| `query_ocr_result` | 文档智能（异步） | 查询任务状态和结果下载链接 |
+| `submit_and_wait_ocr` | 文档智能（同步） | 提交 + 自动轮询直到完成 |
 
 ## 快速开始
 
@@ -74,22 +75,25 @@ pip install git+https://github.com/mzhx93/aitoolkit.git@scnet-doc-ocr
 
 ## API 接口
 
-基于 Scnet OCR 文档智能服务：
+### 通用 OCR（图片识别）
+- **识别图片**: `POST /api/llm/v1/ocr/recognize` — multipart/form-data 上传
+- 详见 [官方文档](https://www.scnet.cn/ac/openapi/doc/2.0/moduleapi/api/ocr.html)
 
+### 文档智能（PDF/长文档）
 - **提交任务**: `POST /api/llm/v1/ocrdoc/submit`
 - **查询结果**: `POST /api/llm/v1/ocrdoc/result`
-
-详见 [官方文档](https://www.scnet.cn/ac/openapi/doc/2.0/moduleapi/api/ocrdoc.html)。
+- 详见 [官方文档](https://www.scnet.cn/ac/openapi/doc/2.0/moduleapi/api/ocrdoc.html)
 
 ## 使用示例
 
 ```
-# 提交 OCR 任务
-用户: 用 OCR 识别这个文档 https://example.com/doc.pdf
+# 通用 OCR — 识别单张图片
+用户: 识别这张身份证 C:\Users\me\id_card.jpg
+# → AI 调用 recognize_image_ocr(file_path="C:\\Users\\me\\id_card.jpg", ocr_type="ID_CARD")
 
-# AI 自动调用 submit_ocr_task，返回 task_id
-# 然后调用 query_ocr_result 查询结果
-# 获取到的 results[] 中包含识别结果 JSON 的下载地址
+# 文档智能 — 识别 PDF 文档
+用户: 用 OCR 识别这个文档 https://example.com/doc.pdf
+# → AI 调用 submit_and_wait_ocr(file_url="https://example.com/doc.pdf")
 ```
 
 ## 依赖
