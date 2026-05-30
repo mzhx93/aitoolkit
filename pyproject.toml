@@ -1,0 +1,17 @@
+[project]
+name = "scnet-ocr-mcp"
+version = "0.1.0"
+description = "MCP server for Scnet OCR Document Intelligence Service"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+scnet-ocr-mcp = "scnet_ocr_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
