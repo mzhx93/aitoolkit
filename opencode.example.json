@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "scnet-ocr": {
+      "command": "python",
+      "args": ["-m", "scnet_ocr_mcp.server"],
+      "env": {
+        "SCNET_API_KEY": "<your-api-key>",
+        "POLL_INTERVAL": "5",
+        "MAX_POLL_ATTEMPTS": "60"
+      }
+    }
+  }
+}

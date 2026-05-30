@@ -3,33 +3,36 @@ import os
 from typing import Any
 
 import httpx
-from dotenv import load_dotenv
 from mcp.server import FastMCP
-
-load_dotenv()
 
 mcp = FastMCP("scnet-ocr-doc")
 
-BASE_URL = os.getenv("SCNET_BASE_URL", "https://api.scnet.cn/api/llm/v1/ocrdoc")
-API_KEY = os.getenv("SCNET_API_KEY", "")
-POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "5"))
-MAX_POLL_ATTEMPTS = int(os.getenv("MAX_POLL_ATTEMPTS", "60"))
 
-SUBMIT_URL = f"{BASE_URL}/submit"
-RESULT_URL = f"{BASE_URL}/result"
-
-
-def _get_headers() -> dict[str, str]:
+def _get_config() -> dict[str, Any]:
+    api_key = os.getenv("SCNET_API_KEY", "")
+    base_url = os.getenv("SCNET_BASE_URL", "https://api.scnet.cn/api/llm/v1/ocrdoc")
+    poll_interval = int(os.getenv("POLL_INTERVAL", "5"))
+    max_poll_attempts = int(os.getenv("MAX_POLL_ATTEMPTS", "60"))
     return {
-        "Authorization": f"Bearer {API_KEY}",
+        "api_key": api_key,
+        "submit_url": f"{base_url}/submit",
+        "result_url": f"{base_url}/result",
+        "poll_interval": poll_interval,
+        "max_poll_attempts": max_poll_attempts,
+    }
+
+
+def _get_headers(api_key: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
 
-def _check_api_key() -> None:
-    if not API_KEY:
+def _check_api_key(api_key: str) -> None:
+    if not api_key:
         raise ValueError(
-            "SCNET_API_KEY 未设置。请在 .env 文件中配置或设置环境变量。"
+            "SCNET_API_KEY 未设置。请在 MCP 客户端配置中设置 env.SCNET_API_KEY。"
         )
 
 
@@ -46,13 +49,13 @@ async def submit_ocr_task(
         file_url: 待处理文件的公网可访问下载地址。需要先通过文件上传接口获取。
         ocr_type: 识别类别，目前仅支持 DOC_PARING（文档解析）。
     """
-    _check_api_key()
-    payload = {
-        "file_url": file_url,
-        "ocr_type": ocr_type,
-    }
+    cfg = _get_config()
+    _check_api_key(cfg["api_key"])
+    payload = {"file_url": file_url, "ocr_type": ocr_type}
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(SUBMIT_URL, json=payload, headers=_get_headers())
+        resp = await client.post(
+            cfg["submit_url"], json=payload, headers=_get_headers(cfg["api_key"])
+        )
         data = resp.json()
 
     if resp.status_code >= 400:
@@ -76,10 +79,13 @@ async def query_ocr_result(task_ids: list[str]) -> dict[str, Any]:
     Args:
         task_ids: 任务 ID 列表，可以一次查询多个任务。
     """
-    _check_api_key()
+    cfg = _get_config()
+    _check_api_key(cfg["api_key"])
     payload = {"task_ids": task_ids}
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(RESULT_URL, json=payload, headers=_get_headers())
+        resp = await client.post(
+            cfg["result_url"], json=payload, headers=_get_headers(cfg["api_key"])
+        )
         data = resp.json()
 
     if resp.status_code >= 400:
@@ -117,12 +123,13 @@ async def submit_and_wait_ocr(
         file_url: 待处理文件的公网可访问下载地址。
         ocr_type: 识别类别，目前仅支持 DOC_PARING。
     """
-    _check_api_key()
+    cfg = _get_config()
+    _check_api_key(cfg["api_key"])
+    headers = _get_headers(cfg["api_key"])
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # Step 1: Submit
         submit_payload = {"file_url": file_url, "ocr_type": ocr_type}
-        resp = await client.post(SUBMIT_URL, json=submit_payload, headers=_get_headers())
+        resp = await client.post(cfg["submit_url"], json=submit_payload, headers=headers)
         submit_data = resp.json()
 
         if resp.status_code >= 400:
@@ -132,12 +139,11 @@ async def submit_and_wait_ocr(
         if not task_id:
             return {"error": True, "stage": "submit", "detail": "未获取到 task_id", "raw": submit_data}
 
-        # Step 2: Poll for result
-        for attempt in range(MAX_POLL_ATTEMPTS):
-            await asyncio.sleep(POLL_INTERVAL)
+        for attempt in range(cfg["max_poll_attempts"]):
+            await asyncio.sleep(cfg["poll_interval"])
 
             query_payload = {"task_ids": [task_id]}
-            resp = await client.post(RESULT_URL, json=query_payload, headers=_get_headers())
+            resp = await client.post(cfg["result_url"], json=query_payload, headers=headers)
             query_data = resp.json()
 
             if resp.status_code >= 400:
@@ -177,13 +183,12 @@ async def submit_and_wait_ocr(
                     "raw": query_data,
                 }
 
-        # Timeout
         return {
             "success": False,
             "task_id": task_id,
             "task_status": "timeout",
-            "message": f"轮询超过最大尝试次数 ({MAX_POLL_ATTEMPTS})，任务仍未完成",
-            "poll_attempts": MAX_POLL_ATTEMPTS,
+            "message": f"轮询超过最大尝试次数 ({cfg['max_poll_attempts']})，任务仍未完成",
+            "poll_attempts": cfg["max_poll_attempts"],
         }
 
 
