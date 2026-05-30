@@ -227,6 +227,7 @@ OCR_TYPES = [
 async def recognize_image_ocr(
     file_path: str = "",
     file_url: str = "",
+    image_base64: str = "",
     ocr_type: str = "GENERAL",
 ) -> dict[str, Any]:
     """通用 OCR 图片识别，同步返回结果。
@@ -238,14 +239,16 @@ async def recognize_image_ocr(
       财务票据（增值税发票、火车票、出租车票等）
       金融单据（银行汇票、支票、回单等）
 
-    文件来源二选一：
-      file_path: 本地图片绝对路径（如 C:\\Users\\xxx\\image.png）
-      file_url:  图片公网下载地址
+    文件来源三选一（优先级：image_base64 > file_path > file_url）：
+      image_base64: Base64 编码的图片数据（适合 TUI 粘贴图片后调用）
+      file_path:    本地图片绝对路径
+      file_url:     图片公网下载地址
 
     Args:
+        image_base64: Base64 图片，支持 data:image/png;base64,xxx 或纯 base64
         file_path: 本地图片路径
         file_url: 图片公网下载地址
-        ocr_type: 识别类别，默认 GENERAL（通用文字识别）。可用值见 OCR_TYPES 列表。
+        ocr_type: 识别类别，默认 GENERAL（通用文字识别）
     """
     cfg = _get_config()
     _check_api_key(cfg["api_key"])
@@ -254,7 +257,23 @@ async def recognize_image_ocr(
     filename: str
     mime_type: str = "image/png"
 
-    if file_path:
+    if image_base64:
+        import base64
+        raw = image_base64.strip()
+        if raw.startswith("data:"):
+            header, b64data = raw.split(",", 1)
+            mime_part = header.split(":")[1].split(";")[0] if ":" in header else ""
+            if mime_part:
+                mime_type = mime_part
+            raw = b64data
+        file_content = base64.b64decode(raw)
+        ext_map = {
+            "image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg",
+            "image/bmp": ".bmp", "image/webp": ".webp",
+            "image/tiff": ".tiff", "application/pdf": ".pdf",
+        }
+        filename = f"image{ext_map.get(mime_type, '.png')}"
+    elif file_path:
         path = Path(file_path)
         if not path.is_file():
             return {"error": True, "detail": f"文件不存在: {file_path}"}
@@ -280,7 +299,7 @@ async def recognize_image_ocr(
             url_path = file_url.split("?")[0]
             filename = url_path.rsplit("/", 1)[-1] or "image.png"
     else:
-        return {"error": True, "detail": "请提供 file_path 或 file_url"}
+        return {"error": True, "detail": "请提供 image_base64、file_path 或 file_url"}
 
     if ocr_type not in OCR_TYPES:
         return {
