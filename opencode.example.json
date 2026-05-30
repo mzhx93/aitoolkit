@@ -1,12 +1,10 @@
 {
   "mcpServers": {
-    "scnet-ocr": {
-      "command": "python",
-      "args": ["-m", "scnet_ocr_mcp.server"],
+    "scnet-doc-ocr": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/mzhx93/aitoolkit.git@scnet-doc-ocr", "scnet-ocr-mcp"],
       "env": {
-        "SCNET_API_KEY": "<your-api-key>",
-        "POLL_INTERVAL": "5",
-        "MAX_POLL_ATTEMPTS": "60"
+        "SCNET_API_KEY": "<your-api-key>"
       }
     }
   }

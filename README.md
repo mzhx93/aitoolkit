@@ -15,41 +15,48 @@ Scnet OCR 文档智能服务 MCP Server，支持通过 Model Context Protocol �
 | `query_ocr_result` | 传入 task_ids 列表，查询任务状态和结果下载链接 |
 | `submit_and_wait_ocr` | 提交任务并自动轮询直到完成（同步体验） |
 
-## 安装
-
-```bash
-pip install git+https://github.com/mzhx93/aitoolkit.git@scnet-doc-ocr
-```
-
-或克隆后本地安装：
-
-```bash
-git clone https://github.com/mzhx93/aitoolkit.git
-cd aitoolkit
-git checkout scnet-doc-ocr
-pip install .
-```
-
-## 配置
+## 快速开始
 
 ### 1. 获取 API Key
 
 登录 [Scnet 平台](https://www.scnet.cn)，在 API Key 管理页面创建密钥。
 
-### 2. 配置 opencode
+### 2. 配置 opencode（推荐 uvx，零安装）
 
-将项目根目录下的 `opencode.example.json` 复制为 `opencode.json`，填入你的 API Key：
+复制 `opencode.example.json` → `opencode.json`，填入你的 API Key：
 
 ```json
 {
   "mcpServers": {
-    "scnet-ocr": {
+    "scnet-doc-ocr": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/mzhx93/aitoolkit.git@scnet-doc-ocr", "scnet-ocr-mcp"],
+      "env": {
+        "SCNET_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+```
+
+`uvx` 会自动拉取仓库、安装依赖并启动服务，无需手动 clone 或 pip install。
+
+### 手动安装（可选）
+
+```bash
+pip install git+https://github.com/mzhx93/aitoolkit.git@scnet-doc-ocr
+```
+
+然后在 opencode.json 中：
+
+```json
+{
+  "mcpServers": {
+    "scnet-doc-ocr": {
       "command": "python",
       "args": ["-m", "scnet_ocr_mcp.server"],
       "env": {
-        "SCNET_API_KEY": "<your-api-key>",
-        "POLL_INTERVAL": "5",
-        "MAX_POLL_ATTEMPTS": "60"
+        "SCNET_API_KEY": "<your-api-key>"
       }
     }
   }
