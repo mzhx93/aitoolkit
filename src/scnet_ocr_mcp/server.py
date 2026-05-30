@@ -1,22 +1,27 @@
 import asyncio
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
 from mcp.server import FastMCP
 
-mcp = FastMCP("scnet-ocr-doc")
+mcp = FastMCP("scnet-ocr")
 
 
 def _get_config() -> dict[str, Any]:
     api_key = os.getenv("SCNET_API_KEY", "")
     base_url = os.getenv("SCNET_BASE_URL", "https://api.scnet.cn/api/llm/v1/ocrdoc")
+    ocr_base_url = os.getenv(
+        "SCNET_OCR_BASE_URL", "https://api.scnet.cn/api/llm/v1/ocr/recognize"
+    )
     poll_interval = int(os.getenv("POLL_INTERVAL", "5"))
     max_poll_attempts = int(os.getenv("MAX_POLL_ATTEMPTS", "60"))
     return {
         "api_key": api_key,
         "submit_url": f"{base_url}/submit",
         "result_url": f"{base_url}/result",
+        "ocr_recognize_url": ocr_base_url,
         "poll_interval": poll_interval,
         "max_poll_attempts": max_poll_attempts,
     }
@@ -27,6 +32,10 @@ def _get_headers(api_key: str) -> dict[str, str]:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+
+
+def _get_form_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}"}
 
 
 def _check_api_key(api_key: str) -> None:
@@ -190,6 +199,133 @@ async def submit_and_wait_ocr(
             "message": f"轮询超过最大尝试次数 ({cfg['max_poll_attempts']})，任务仍未完成",
             "poll_attempts": cfg["max_poll_attempts"],
         }
+
+
+OCR_TYPES = [
+    "GENERAL", "BILL_MIXING_AND_IDENTIFICATION", "SEAL_CHARACTER_RECOGNITION",
+    "ID_CARD", "BANK_CARD", "SOCIAL_SECURITY_CARD", "HOUSEHOLD_REGISTER",
+    "BIRTH_CERTIFICATE", "HK_MACAU_PASS", "TAIWAN_PASS", "TAIWAN_MAINLAND_PASS",
+    "HK_MAINLAND_PASS", "HONG_KONG_IDENTITY_CARD", "PERMANENT_RESIDENCE_ID_CARD_FOR",
+    "MARRIAGE_CERTIFICATE", "REAL_ESTATE_OWNERSHIP_CERTIFICAT",
+    "FRONT_PAGE_OF_MOTOR_VEHICLE_DRIV", "SECOND_SHEET_OF_MOTOR_VEHICLE_DR",
+    "MOTOR_VEHICLE_DRIVING_LICENSE", "MOTOR_VEHICLE_DRIVING_LICENSE_SU",
+    "CHINESE_PASSPORT", "ACADEMIC_CERTIFICATE", "ONLINE_VERIFICATION_REPORT_OF_HE",
+    "DIPLOMA", "BUSINESS_LICENSE", "SOCIAL_ORG_REG", "TRADE_UNION_REG",
+    "PRIVATE_NON_ENTERPRISE_REG", "INSTITUTION_LEGAL_REG", "UNIFIED_SOCIAL_CREDIT_REG",
+    "UNIFIED_IDENTIFICATION_OF_FINANC", "VAT_INVOICE", "VAT_ROLL_INVOICE",
+    "TAXI_INVOICE", "TRAIN_TICKET", "AIRPORT_TICKET", "VEHICLE_SALE_INVOICE",
+    "QUOTA_INVOICE", "TOLL_INVOICE", "MEDICAL_INVOICE", "TAX_CERTIFICATE",
+    "SHIP_TICKET", "NON_TAX_BILL", "GENERAL_MACHINE_INVOICE", "BUS_TICKET",
+    "BANK_DRAFT", "BANK_ACCEPTANCE_BILL", "ELECTRONIC_BANK_ACCEPTANCE_BILL",
+    "COMMERCIAL_ACCEPTANCE_BILL", "ELECTRONIC_COMMERCIAL_ACCEPTANCE",
+    "BANK_CHECK", "BANK_RECEIPT", "DEPOSIT_SLIP", "TELEGRAPHIC_TRANSFER_VOUCHER",
+    "WITHDRAWAL_VOUCHER", "MOBILE_PAYMENT_BILL",
+]
+
+
+@mcp.tool()
+async def recognize_image_ocr(
+    file_path: str = "",
+    file_url: str = "",
+    ocr_type: str = "GENERAL",
+) -> dict[str, Any]:
+    """通用 OCR 图片识别，同步返回结果。
+
+    支持 56 种识别场景：
+      通用文字识别、票据混贴、印章文字识别
+      个人证照（身份证、银行卡、社保卡、户口本、护照、驾驶证等）
+      行业资质（营业执照、社会团体法人证书等）
+      财务票据（增值税发票、火车票、出租车票等）
+      金融单据（银行汇票、支票、回单等）
+
+    文件来源二选一：
+      file_path: 本地图片绝对路径（如 C:\\Users\\xxx\\image.png）
+      file_url:  图片公网下载地址
+
+    Args:
+        file_path: 本地图片路径
+        file_url: 图片公网下载地址
+        ocr_type: 识别类别，默认 GENERAL（通用文字识别）。可用值见 OCR_TYPES 列表。
+    """
+    cfg = _get_config()
+    _check_api_key(cfg["api_key"])
+
+    file_content: bytes
+    filename: str
+    mime_type: str = "image/png"
+
+    if file_path:
+        path = Path(file_path)
+        if not path.is_file():
+            return {"error": True, "detail": f"文件不存在: {file_path}"}
+        file_content = path.read_bytes()
+        filename = path.name
+        suffix = path.suffix.lower()
+        mime_map = {
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".png": "image/png", ".bmp": "image/bmp",
+            ".tiff": "image/tiff", ".tif": "image/tiff",
+            ".webp": "image/webp", ".pdf": "application/pdf",
+        }
+        mime_type = mime_map.get(suffix, "image/png")
+    elif file_url:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            dl_resp = await client.get(file_url)
+            if dl_resp.status_code >= 400:
+                return {"error": True, "detail": f"下载失败: HTTP {dl_resp.status_code}"}
+            file_content = dl_resp.content
+            content_type = dl_resp.headers.get("content-type", "")
+            if content_type:
+                mime_type = content_type.split(";")[0].strip()
+            url_path = file_url.split("?")[0]
+            filename = url_path.rsplit("/", 1)[-1] or "image.png"
+    else:
+        return {"error": True, "detail": "请提供 file_path 或 file_url"}
+
+    if ocr_type not in OCR_TYPES:
+        return {
+            "error": True,
+            "detail": f"不支持的 ocr_type: {ocr_type}，可用类型: {OCR_TYPES}",
+        }
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            cfg["ocr_recognize_url"],
+            data={"ocrType": ocr_type},
+            files={"file": (filename, file_content, mime_type)},
+            headers=_get_form_headers(cfg["api_key"]),
+        )
+        data = resp.json()
+
+    if resp.status_code >= 400:
+        return {"error": True, "status_code": resp.status_code, "detail": data}
+
+    # Simplify result for readability
+    extracted = []
+    for item in data.get("data", []):
+        for result_item in item.get("result", []):
+            elements = result_item.get("elements", {})
+            stamps = result_item.get("stamps", [])
+            entry = {
+                "status": result_item.get("status"),
+                "filename": result_item.get("originFilename", ""),
+                "file_index": result_item.get("fileIndex"),
+                "confidence": result_item.get("confidence"),
+                "classify_code": result_item.get("classifyCode", ""),
+            }
+            if elements:
+                entry["elements"] = elements
+            if stamps:
+                entry["stamps"] = stamps
+            extracted.append(entry)
+
+    return {
+        "success": True,
+        "code": data.get("code"),
+        "ocr_type": ocr_type,
+        "results": extracted,
+        "raw": data,
+    }
 
 
 def main():
